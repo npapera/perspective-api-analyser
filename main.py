@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import logging
 
 from dotenv import load_dotenv
 from googleapiclient import discovery
@@ -8,34 +9,47 @@ from utils.json_writer import make_json
 
 load_dotenv()
 DEVELOPER_KEY = os.getenv("API_KEY")
+minIndex = 0
+maxIndex = 500
+totalIndex = maxIndex - minIndex
+batchId = 'B1-SS1'
+batchFile = f'{batchId}_DT{totalIndex}_{minIndex}-{maxIndex}'
+outputDir = f'analysis/PANS_{batchFile}'
 
-outputDir = 'test'
+logging.basicConfig(filename=f'tmp/{batchFile}.log',
+                    level=logging.DEBUG,
+                    format='%(asctime)s %(levelname)s %(name)s %(message)s')
+logger=logging.getLogger(__name__)
 
-def commentAnalyser(text, to_json=False):
-    client = discovery.build(
-        "commentanalyzer",
-        "v1alpha1",
-        developerKey=DEVELOPER_KEY,
-        discoveryServiceUrl="https://commentanalyzer.googleapis.com/$discovery/rest?version=v1alpha1",
-        static_discovery=False,
-    )
+def commentAnalyser(text):
 
-    analyze_request = {
-        'comment': { 'text': text },
-        'requestedAttributes': {
-            'TOXICITY': {},
-            'SEVERE_TOXICITY': {},
-            'IDENTITY_ATTACK': {},
-            'INSULT': {},
-            'PROFANITY': {},
-            'THREAT': {},
+    try:
+        client = discovery.build(
+            "commentanalyzer",
+            "v1alpha1",
+            developerKey=DEVELOPER_KEY,
+            discoveryServiceUrl="https://commentanalyzer.googleapis.com/$discovery/rest?version=v1alpha1",
+            static_discovery=False,
+        )
+
+        analyze_request = {
+            'comment': { 'text': text },
+            'requestedAttributes': {
+                'TOXICITY': {},
+                'SEVERE_TOXICITY': {},
+                'IDENTITY_ATTACK': {},
+                'INSULT': {},
+                'PROFANITY': {},
+                'THREAT': {},
+            }
         }
-    }
 
-    response = client.comments().analyze(body=analyze_request).execute()
+        response = client.comments().analyze(body=analyze_request).execute()
+    except Exception as e:
+        print(f"Unexpected Error: {e}")
+        logger.error(e)
 
     holdThis = response
-    # print(response)
     toxicScore = holdThis['attributeScores']['TOXICITY']['summaryScore']['value']
     sevToxicScore = holdThis['attributeScores']['SEVERE_TOXICITY']['summaryScore']['value']
     idAttackScore = holdThis['attributeScores']['IDENTITY_ATTACK']['summaryScore']['value']
@@ -43,18 +57,31 @@ def commentAnalyser(text, to_json=False):
     profanityScore = holdThis['attributeScores']['PROFANITY']['summaryScore']['value']
     threatScore = holdThis['attributeScores']['THREAT']['summaryScore']['value']
 
-    
-    
-    if to_json:
-        make_json(response, outputDir)
+    jsonItem = {}
+    jsonItem["textOriginal"] = text
+    jsonItem["TOXICITY"] = toxicScore
+    jsonItem["SEVERE_TOXICITY"] = sevToxicScore
+    jsonItem["TOXICITY"] = idAttackScore
+    jsonItem["INSULT"] = insultScore
+    jsonItem["PROFANITY"] = profanityScore
+    jsonItem["THREAT"] = threatScore
+
+    return jsonItem
 
 def main():
-    file = open('data\s2\-11YXFg2TbQ_1429_12-05-2023.json')
+    to_json = True
+    file = open('data/analysis/CANS_B1-SS1_DT100_2250_24-05-2023.json')
     data = json.load(file)
-    for i in range(0,10):
-        commentAnalyser(data[i]['textOriginal'], to_json=False)
-        print()
-        time.sleep(2)
+    all_data = []
+    for i in range(minIndex, maxIndex):
+        logger.info(f"Processing comment at Index: {i}")
+        all_data.append(commentAnalyser(data[i]['textOriginal']))
+        time.sleep(1)
+        print(f"Data analysed by perspective at Index: {i}")
+        logger.info(f"Finished analysing comment at Index: {i}")
+
+    if to_json:
+        make_json(all_data, outputDir)
 
 if __name__ == "__main__":
     main()
